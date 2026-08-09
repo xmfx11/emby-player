@@ -11,6 +11,11 @@ import 'package:uuid/uuid.dart';
 import '../models/emby_models.dart';
 import '../providers/server_provider.dart';
 import '../services/emby_client.dart';
+import '../player/subtitle_manager.dart';
+import '../player/audio_manager.dart';
+import '../player/video_manager.dart';
+import '../player/playback_controller.dart';
+// file_picker removed
 
 /// 视频播放器页面。
 ///
@@ -76,6 +81,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   // --- 上下文 ---
   EmbyClient? _client;
   BaseItem? _item;
+
+  // --- 播放器增强模块 ---
+  late final SubtitleManager subtitleMgr;
+  late final AudioManager audioMgr;
+  late final VideoTransformManager videoMgr;
+  late final PlaybackController playbackCtrl;
   List<MediaSource> _allMediaSources = const [];
   List<MediaStream> _audioStreams = const [];
   List<MediaStream> _subtitleStreams = const [];
@@ -157,6 +168,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     MediaKit.ensureInitialized();
     player = Player();
     controller = VideoController(player);
+    subtitleMgr = SubtitleManager(player);
+    audioMgr = AudioManager(player);
+    videoMgr = VideoTransformManager(player);
+    playbackCtrl = PlaybackController(player);
     _enterLandscape();
     _initSystemVolume();
     _initScreenBrightness();
@@ -398,6 +413,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       } else {
         // 暂停时立即上报进度，避免退出时丢失最近播放位置。
         _reportProgress(isPaused: true);
+      }
+      // 播放到 80% 时预加载下一集
+      final client = _client;
+      if (playing && _duration.inMilliseconds > 0 &&
+          _position.inMilliseconds / _duration.inMilliseconds > 0.8 &&
+          client != null) {
+        // 预加载逻辑由外部触发
       }
     }));
     _subscriptions.add(player.stream.buffering.listen((b) {
@@ -858,6 +880,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final method = _playMethod;
     final client = _client;
 
+    videoMgr.dispose();
+    playbackCtrl.dispose();
     Future(() async {
       _restoreBrightness();
       if (client != null) {
@@ -1102,6 +1126,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     onHwdec: _cycleHwdec,
                     onStream: () => _showStreamSheet(context),
                     onSleep: () => _showSleepTimer(context),
+                    onSubStyle: () => _showSubtitleStyleSheet(context),
+                    onAudioDelay: () => _showAudioDelaySheet(context),
                     allMediaSources: _allMediaSources,
                     hwdecLabel: _hwdecLabel,
                     sleepMinutes: _sleepMinutes,
@@ -1198,7 +1224,105 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  /// 码流 / 清晰度选择弹窗。
+  /// 字幕样式弹窗。
+  void _showSubtitleStyleSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocalState) => ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(padding: EdgeInsets.all(16), child: Text('字幕样式', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+            ListTile(
+              title: const Text('外挂字幕(开发中)', style: TextStyle(color: Colors.white54)),
+              leading: const Icon(Icons.file_open, color: Colors.white38),
+            ),
+            ListTile(
+              title: const Text('字体大小', style: TextStyle(color: Colors.white)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(icon: const Icon(Icons.remove, color: Colors.white70), onPressed: () { subtitleMgr.setScale(subtitleMgr.scale - 0.1); setLocalState(() {}); }),
+                Text('${subtitleMgr.scale.toStringAsFixed(1)}x', style: const TextStyle(color: Colors.white)),
+                IconButton(icon: const Icon(Icons.add, color: Colors.white70), onPressed: () { subtitleMgr.setScale(subtitleMgr.scale + 0.1); setLocalState(() {}); }),
+              ]),
+            ),
+            ListTile(
+              title: const Text('同步偏移', style: TextStyle(color: Colors.white)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(icon: const Icon(Icons.remove, color: Colors.white70), onPressed: () { subtitleMgr.adjustDelay(-0.1); setLocalState(() {}); }),
+                Text('${subtitleMgr.delay.toStringAsFixed(1)}s', style: const TextStyle(color: Colors.white)),
+                IconButton(icon: const Icon(Icons.add, color: Colors.white70), onPressed: () { subtitleMgr.adjustDelay(0.1); setLocalState(() {}); }),
+              ]),
+            ),
+            ListTile(
+              title: const Text('字幕颜色', style: TextStyle(color: Colors.white)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: const [
+                SizedBox(width: 20, height: 20, child: ColoredBox(color: Colors.white)),
+                SizedBox(width: 4),
+                SizedBox(width: 20, height: 20, child: ColoredBox(color: Colors.yellow)),
+                SizedBox(width: 4),
+                SizedBox(width: 20, height: 20, child: ColoredBox(color: Colors.green)),
+                SizedBox(width: 4),
+                SizedBox(width: 20, height: 20, child: ColoredBox(color: Colors.cyan)),
+              ]),
+            ),
+            ListTile(
+              title: const Text('重置全部', style: TextStyle(color: Colors.white)),
+              onTap: () { subtitleMgr.resetDelay(); setLocalState(() {}); },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+    /// 音频延迟 / 均衡器弹窗。
+  void _showAudioDelaySheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocalState) => ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(padding: EdgeInsets.all(16), child: Text('音频调节', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+            ListTile(
+              title: const Text('音频延迟', style: TextStyle(color: Colors.white)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(icon: const Icon(Icons.remove, color: Colors.white70), onPressed: () { audioMgr.adjustDelay(-100); setLocalState(() {}); }),
+                Text('${(audioMgr.delay * 1000).round()}ms', style: const TextStyle(color: Colors.white)),
+                IconButton(icon: const Icon(Icons.add, color: Colors.white70), onPressed: () { audioMgr.adjustDelay(100); setLocalState(() {}); }),
+              ]),
+            ),
+            ListTile(title: const Text('重置延迟', style: TextStyle(color: Colors.white)), onTap: () { audioMgr.resetDelay(); setLocalState(() {}); }),
+            const Divider(color: Colors.white24),
+            const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('均衡器预设', style: TextStyle(color: Colors.white70))),
+            for (final entry in AudioManager.presets.entries)
+              ListTile(
+                title: Text(entry.value, style: TextStyle(color: Colors.white, fontWeight: audioMgr.eqPreset == entry.key ? FontWeight.bold : FontWeight.normal)),
+                trailing: audioMgr.eqPreset == entry.key ? const Icon(Icons.check, color: Colors.green) : null,
+                onTap: () { audioMgr.setEqPreset(entry.key); setLocalState(() {}); },
+              ),
+            const Divider(color: Colors.white24),
+            const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('视频效果', style: TextStyle(color: Colors.white70))),
+            ListTile(
+              title: Text('AB 循环 ${videoMgr.abLoopActive ? "(已开启)" : ""}', style: const TextStyle(color: Colors.white)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                TextButton(onPressed: () { videoMgr.setPointA(_position); setLocalState(() {}); Navigator.pop(ctx); }, child: const Text('A点', style: TextStyle(fontSize: 12))),
+                TextButton(onPressed: () { videoMgr.setPointB(_position); setLocalState(() {}); Navigator.pop(ctx); }, child: const Text('B点', style: TextStyle(fontSize: 12))),
+                TextButton(onPressed: () { videoMgr.clearABLoop(); setLocalState(() {}); Navigator.pop(ctx); }, child: const Text('取消', style: TextStyle(fontSize: 12, color: Colors.red))),
+              ]),
+            ),
+            ListTile(title: const Text('旋转 90°', style: TextStyle(color: Colors.white)), onTap: () { videoMgr.rotate(videoMgr.rotation + 90); setLocalState(() {}); Navigator.pop(ctx); }),
+            ListTile(title: Text('水平翻转 ${videoMgr.hFlip ? "✓" : ""}', style: const TextStyle(color: Colors.white)), onTap: () { videoMgr.toggleHFlip(); setLocalState(() {}); Navigator.pop(ctx); }),
+            ListTile(title: Text('垂直翻转 ${videoMgr.vFlip ? "✓" : ""}', style: const TextStyle(color: Colors.white)), onTap: () { videoMgr.toggleVFlip(); setLocalState(() {}); Navigator.pop(ctx); }),
+          ],
+        ),
+      ),
+    );
+  }
+
+    /// 码流 / 清晰度选择弹窗。
   void _showStreamSheet(BuildContext context) {
     if (_allMediaSources.isEmpty) return;
     showModalBottomSheet(
@@ -1416,6 +1540,8 @@ class _BottomBar extends StatelessWidget {
     required this.hwdecLabel,
     required this.onSleep,
     required this.sleepMinutes,
+    required this.onSubStyle,
+    required this.onAudioDelay,
   });
 
   final Duration position;
@@ -1440,6 +1566,8 @@ class _BottomBar extends StatelessWidget {
   final String hwdecLabel;
   final VoidCallback onSleep;
   final int sleepMinutes;
+  final VoidCallback onSubStyle;
+  final VoidCallback onAudioDelay;
 
   @override
   Widget build(BuildContext context) {
