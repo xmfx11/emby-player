@@ -76,6 +76,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   // --- 上下文 ---
   EmbyClient? _client;
   BaseItem? _item;
+  List<MediaSource> _allMediaSources = const [];
   List<MediaStream> _audioStreams = const [];
   List<MediaStream> _subtitleStreams = const [];
 
@@ -90,6 +91,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _isPlaying = false;
   bool _buffering = false;
   double _speed = 1.0;
+  double _speedBeforeLongPress = 1.0;
   double _volume = 100;
   bool _completed = false;
   int? _selectedAudioIndex;
@@ -111,6 +113,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   // --- 屏幕锁 ---
   bool _isLocked = false;
   bool _showLockUnlock = false;
+  bool _showSettings = false;
+  String _hwdec = "auto-safe";
 
   // --- 屏幕比例 ---
   int _boxFitIndex = 0;
@@ -235,6 +239,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         ms = mediaSources.first;
       }
       _currentMediaSourceId = ms.id;
+      _allMediaSources = mediaSources;
       _audioStreams =
           ms.mediaStreams.where((s) => s.type == 'Audio').toList();
       _subtitleStreams =
@@ -264,6 +269,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           resolved.url,
           httpHeaders: {'X-Emby-Token': client.token},
           start: _resumePosition > Duration.zero ? _resumePosition : null,
+          extras: {'hwdec': _hwdec},
         ),
       );
       await player.setRate(_speed);
@@ -602,6 +608,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     setState(() {});
   }
 
+  Future<void> _cycleHwdec() async {
+    const modes = ['auto-safe', 'auto', 'no'];
+    final idx = modes.indexOf(_hwdec);
+    final next = modes[(idx + 1) % modes.length];
+    setState(() => _hwdec = next);
+    // hwdec takes effect on next open
+  }
+
+  String get _hwdecLabel {
+    switch (_hwdec) {
+      case 'auto-safe': return 'auto';
+      case 'auto': return 'hw';
+      case 'no': return 'sw';
+      default: return _hwdec;
+    }
+  }
+
   void _toggleLock() {
     setState(() {
       _isLocked = !_isLocked;
@@ -858,6 +881,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           onTap: _isLocked
               ? () => setState(() => _showLockUnlock = !_showLockUnlock)
               : _toggleControls,
+      onLongPressStart: (_) async {
+        await player.setRate(2.0);
+        setState(() => _speed = 2.0);
+      },
+      onLongPressEnd: (_) async {
+        await player.setRate(_speedBeforeLongPress);
+        setState(() => _speed = _speedBeforeLongPress);
+      },
+      onLongPressMoveUpdate: (_) {}, // consume long press move
           onDoubleTap: _isLocked ? null : _playOrPause,
           onHorizontalDragStart: _isLocked ? null : _onHorizontalDragStart,
           onHorizontalDragUpdate: _isLocked ? null : _onHorizontalDragUpdate,
@@ -1007,6 +1039,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     onAspectRatio: _cycleAspectRatio,
                     onAudio: () => _showAudioSheet(context),
                     onSubtitle: () => _showSubtitleSheet(context),
+                    onHwdec: _cycleHwdec,
+                    onStream: () => _showStreamSheet(context),
+                    allMediaSources: _allMediaSources,
+                    hwdecLabel: _hwdecLabel,
                   ),
                 ],
               ),
@@ -1098,6 +1134,61 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         );
       },
     );
+  }
+
+  /// 码流 / 清晰度选择弹窗。
+  void _showStreamSheet(BuildContext context) {
+    if (_allMediaSources.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('选择清晰度', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          ..._allMediaSources.map((ms) {
+            final isCurrent = ms.id == _currentMediaSourceId;
+            final label = (ms.name?.isNotEmpty == true) ? ms.name! : (ms.container ?? "未知品质");
+            return ListTile(
+              leading: Icon(isCurrent ? Icons.check_circle : Icons.radio_button_unchecked, color: Colors.white70),
+              title: Text(label, style: const TextStyle(color: Colors.white)),
+              subtitle: ms.container != null ? Text(ms.container!, style: TextStyle(color: Colors.grey[400], fontSize: 12)) : null,
+              onTap: isCurrent ? null : () async {
+                Navigator.pop(ctx);
+                await _switchMediaSource(ms);
+              },
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  /// 切换媒体源。
+  Future<void> _switchMediaSource(MediaSource ms) async {
+    setState(() { _loading = true; });
+    final client = _client;
+    if (client == null) return;
+    final resolved = _resolvePlayUrl(client, widget.itemId, ms);
+    _currentMediaSourceId = ms.id;
+    _audioStreams = ms.mediaStreams.where((s) => s.type == 'Audio').toList();
+    _subtitleStreams = ms.mediaStreams.where((s) => s.type == 'Subtitle').toList();
+    _selectedSubtitleIndex = null;
+    if (_audioStreams.isNotEmpty) {
+      _selectedAudioIndex = _audioStreams
+          .firstWhere((s) => s.isDefault, orElse: () => _audioStreams.first).index;
+    } else {
+      _selectedAudioIndex = null;
+    }
+    await player.open(Media(resolved.url, httpHeaders: {'X-Emby-Token': client.token}, extras: {'hwdec': _hwdec}));
+    await player.setRate(_speed);
+    await player.setVolume(100);
+    await player.play();
+    if (mounted) setState(() { _loading = false; _initialized = true; });
+    _reportStart();
   }
 
   void _showSubtitleSheet(BuildContext context) {
@@ -1257,6 +1348,10 @@ class _BottomBar extends StatelessWidget {
     required this.onAspectRatio,
     required this.onAudio,
     required this.onSubtitle,
+    required this.onHwdec,
+    required this.onStream,
+    required this.allMediaSources,
+    required this.hwdecLabel,
   });
 
   final Duration position;
@@ -1275,6 +1370,10 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onAspectRatio;
   final VoidCallback onAudio;
   final VoidCallback onSubtitle;
+  final VoidCallback onHwdec;
+  final VoidCallback onStream;
+  final List<MediaSource> allMediaSources;
+  final String hwdecLabel;
 
   @override
   Widget build(BuildContext context) {
