@@ -286,7 +286,7 @@ class EmbyClient {
         .toList();
   }
 
-  /// 关键词搜索：`GET /Users/{userId}/Items`（带 SearchTerm）。
+  /// 获取最新内容：`GET /Users/{userId}/Items/Latest`。
   Future<ItemsResponse> search(
     String query, {
     int? limit,

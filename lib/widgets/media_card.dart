@@ -86,19 +86,40 @@ class MediaCard extends ConsumerWidget {
                         ),
                       ),
                     ),
-                  // 播放进度条
+                  // 播放进度条（彩色：绿→黄→红）
                   if (hasProgress)
                     Positioned(
                       left: 0,
                       right: 0,
                       bottom: 0,
-                      child: LinearProgressIndicator(
-                        value: (percentage / 100).clamp(0.0, 1.0),
-                        minHeight: 4,
-                        backgroundColor: Colors.black.withValues(alpha: 0.45),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          theme.colorScheme.primary,
-                        ),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final ratio = (percentage / 100).clamp(0.0, 1.0);
+                          final color = ratio < 0.5
+                              ? const Color(0xFF4CAF50)
+                              : ratio < 0.8
+                                  ? const Color(0xFFFFC107)
+                                  : const Color(0xFFFF5722);
+                          return Stack(
+                            children: [
+                              Container(
+                                height: 4,
+                                color: Colors.black.withValues(alpha: 0.45),
+                              ),
+                              Container(
+                                height: 4,
+                                width: constraints.maxWidth * ratio,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  borderRadius: const BorderRadius.only(
+                                    topRight: Radius.circular(2),
+                                    bottomRight: Radius.circular(2),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                 ],

@@ -8,7 +8,9 @@ import '../providers/server_provider.dart';
 import '../services/emby_client.dart';
 import 'actor_detail_screen.dart';
 import 'genre_list_screen.dart';
+import '../widgets/media_card.dart';
 import 'player_screen.dart';
+import 'similar_section.dart';
 import 'tag_list_screen.dart';
 
 /// 媒体详情页：根据传入的 [item] 拉取完整详情并展示。
@@ -788,6 +790,7 @@ class _GallerySection extends StatelessWidget {
               },
             ),
           ),
+          if (client != null) SimilarSection(itemId: itemId, client: client!),
         ],
       ),
     );

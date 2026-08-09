@@ -664,7 +664,7 @@ class _SettingsTab extends ConsumerWidget {
             leading: const Icon(Icons.system_update),
             title: const Text('检查更新'),
             subtitle: const Text('当前版本 1.0.0'),
-            onTap: () => _checkOtaUpdate(context),
+            onTap: () => OtaService.checkManual(context),
           ),
         ],
       ),
@@ -684,61 +684,7 @@ class _SettingsTab extends ConsumerWidget {
     );
   }
 
-Future<void> _checkOtaUpdate(BuildContext context) async {
-    final info = await OtaService.checkUpdate();
-    if (!context.mounted) return;
-    if (info != null) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('发现新版本'),
-          content: Text('版本 ${info.version}（${info.sizeText}），是否下载更新？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _downloadOta(context, info);
-              },
-              child: const Text('下载更新'),
-            ),
-          ],
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已是最新版本')),
-      );
-    }
-  }
-
-  void _downloadOta(BuildContext context, OtaInfo info) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        double progress = 0;
-        return StatefulBuilder(
-          builder: (ctx, setState) => AlertDialog(
-            title: const Text('正在下载更新…'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LinearProgressIndicator(value: progress),
-                const SizedBox(height: 8),
-                Text('${(progress * 100).toStringAsFixed(0)}%'),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

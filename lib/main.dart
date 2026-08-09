@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/server_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
-import 'services/ota_service.dart';
 
 /// Material 3 亮色主题。
 final ThemeData _lightTheme = ThemeData(
@@ -27,10 +26,6 @@ final ThemeData _darkTheme = ThemeData(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 初始化 OTA 通知和后台检查
-  await OtaService.initNotifications();
-  OtaService.scheduleBackgroundCheck(); // fire-and-forget
 
   // 提前创建容器并恢复上次会话，避免在首帧闪烁登录页。
   final container = ProviderContainer();

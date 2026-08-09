@@ -34,7 +34,6 @@ dependencies:
 
   # --- 图片加载 ---
   cached_network_image: ^3.4.1
-  flutter_local_notifications: ^18.0.1
 
   # --- 后台音频 / 锁屏控制 ---
   audio_service: ^0.18.19
@@ -54,8 +53,6 @@ dev_dependencies:
 
 
   cached_network_image: ^3.4.1
-  workmanager: ^0.5.2
-  flutter_local_notifications: ^18.0.1
 
 flutter:
   uses-material-design: true
