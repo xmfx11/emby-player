@@ -1,0 +1,4 @@
+*.hprof
+build/
+.dart_tool/
+.packages
