@@ -9,6 +9,7 @@ import '../providers/library_provider.dart';
 import '../providers/server_provider.dart';
 import '../widgets/media_card.dart';
 import '../services/ota_service.dart';
+import 'browse_all_screen.dart';
 import 'browse_screen.dart';
 import 'detail_screen.dart';
 import 'search_screen.dart';
@@ -119,6 +120,20 @@ class _HomeTab extends ConsumerWidget {
               title: '最新剧集',
               async: latestSeries,
               extract: (List<BaseItem> d) => d,
+            ),
+          ),
+          // 浏览全部媒体
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const BrowseAllScreen()),
+              ),
+              icon: const Icon(Icons.apps),
+              label: const Text('浏览全部媒体'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+              ),
             ),
           ),
           const SizedBox(height: 24),

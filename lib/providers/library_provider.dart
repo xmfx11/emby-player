@@ -285,3 +285,31 @@ final personDetailProvider =
     fields: const ['Overview', 'People'],
   );
 });
+
+/// 全部媒体（支持类型、风格、年份筛选）。
+final allItemsProvider = FutureProvider.autoDispose
+    .family<ItemsResponse, AllItemsFilter>((ref, filter) async {
+  final client = _requireClient(ref);
+  return client.getItemsByFilter(
+    includeTypes: filter.types != null ? [filter.types!] : null,
+    genre: filter.genre,
+    limit: 100,
+  );
+});
+
+class AllItemsFilter {
+  final String? types;
+  final String? genre;
+  final int? year;
+  const AllItemsFilter({this.types, this.genre, this.year});
+
+  @override
+  bool operator ==(Object other) =>
+      other is AllItemsFilter &&
+      types == other.types &&
+      genre == other.genre &&
+      year == other.year;
+
+  @override
+  int get hashCode => Object.hash(types, genre, year);
+}
