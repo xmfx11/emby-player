@@ -417,6 +417,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _subscriptions.add(player.stream.error.listen((err) {
       if (!mounted || err.isEmpty) return;
       setState(() => _errorMessage = '播放错误：$err');
+      player.pause();
     }));
     // 不监听 player.stream.volume，因为实际音量由系统音量控制。
   }
@@ -539,7 +540,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _setSpeed(double speed) async {
-    setState(() => _speed = speed);
+    setState(() {
+      _speed = speed;
+      _speedBeforeLongPress = speed;
+    });
     await player.setRate(speed);
     _resetHideTimer();
   }
@@ -578,12 +582,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _resetHideTimer();
   }
 
+  Timer? _brightnessTimer;
   void _applyBrightness() {
-    try {
-      _volumeChannel.invokeMethod('setScreenBrightness', <String, dynamic>{
-        'brightness': _screenBrightness,
-      });
-    } catch (_) {}
+    _brightnessTimer?.cancel();
+    _brightnessTimer = Timer(const Duration(milliseconds: 100), () {
+      try {
+        _volumeChannel.invokeMethod('setScreenBrightness', <String, dynamic>{
+          'brightness': _screenBrightness,
+        });
+      } catch (_) {}
+    });
   }
 
   /// 恢复进入播放前的系统亮度。
@@ -608,6 +616,46 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     setState(() {});
   }
 
+  // 睡眠定时器
+  Timer? _sleepTimer;
+  int _sleepMinutes = 0;
+
+  void _showSleepTimer(BuildContext context) {
+    final options = [0, 15, 30, 45, 60, 90, 120];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('睡眠定时', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          for (final min in options)
+            ListTile(
+              title: Text(min == 0 ? '关闭' : '$min 分钟', style: const TextStyle(color: Colors.white)),
+              trailing: _sleepMinutes == min ? const Icon(Icons.check, color: Colors.green) : null,
+              onTap: () {
+                Navigator.pop(ctx);
+                _setSleepTimer(min);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _setSleepTimer(int minutes) {
+    _sleepTimer?.cancel();
+    _sleepMinutes = minutes;
+    if (minutes > 0) {
+      _sleepTimer = Timer(Duration(minutes: minutes), () {
+        if (mounted) _exitPlayer();
+      });
+    }
+  }
+
   Future<void> _cycleHwdec() async {
     const modes = ['auto-safe', 'auto', 'no'];
     final idx = modes.indexOf(_hwdec);
@@ -623,6 +671,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       case 'no': return 'sw';
       default: return _hwdec;
     }
+  }
+
+  void _onDoubleTapStart(TapDownDetails details) {
+    final w = MediaQuery.of(context).size.width;
+    final isRight = details.globalPosition.dx > w / 2;
+    final newPos = isRight
+        ? (_position + const Duration(seconds: 10))
+        : (_position - const Duration(seconds: 10));
+        _seekTo(newPos < Duration.zero ? Duration.zero : (newPos > _duration ? _duration : newPos));
   }
 
   void _toggleLock() {
@@ -787,6 +844,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _progressTimer?.cancel();
     _hideTimer?.cancel();
     _uiThrottleTimer?.cancel();
+    _brightnessTimer?.cancel();
+    _sleepTimer?.cancel();
     for (final s in _subscriptions) {
       s.cancel();
     }
@@ -890,6 +949,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         setState(() => _speed = _speedBeforeLongPress);
       },
       onLongPressMoveUpdate: (_) {}, // consume long press move
+          onDoubleTapDown: _isLocked ? null : _onDoubleTapStart,
           onDoubleTap: _isLocked ? null : _playOrPause,
           onHorizontalDragStart: _isLocked ? null : _onHorizontalDragStart,
           onHorizontalDragUpdate: _isLocked ? null : _onHorizontalDragUpdate,
@@ -1041,8 +1101,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     onSubtitle: () => _showSubtitleSheet(context),
                     onHwdec: _cycleHwdec,
                     onStream: () => _showStreamSheet(context),
+                    onSleep: () => _showSleepTimer(context),
                     allMediaSources: _allMediaSources,
                     hwdecLabel: _hwdecLabel,
+                    sleepMinutes: _sleepMinutes,
                   ),
                 ],
               ),
@@ -1352,6 +1414,8 @@ class _BottomBar extends StatelessWidget {
     required this.onStream,
     required this.allMediaSources,
     required this.hwdecLabel,
+    required this.onSleep,
+    required this.sleepMinutes,
   });
 
   final Duration position;
@@ -1374,6 +1438,8 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onStream;
   final List<MediaSource> allMediaSources;
   final String hwdecLabel;
+  final VoidCallback onSleep;
+  final int sleepMinutes;
 
   @override
   Widget build(BuildContext context) {
